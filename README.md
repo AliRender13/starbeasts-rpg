@@ -89,6 +89,7 @@ game.py       - game state machine, party, bestiary, tent, save/load
 test_smoke.py - headless smoke test (no window needed)
 ```
 
+
 ## How to add a new creature
 
 1. Draw a 16x16 string-map sprite in `sprites.py` (add it to `SPRITES`,
@@ -110,3 +111,10 @@ test_smoke.py - headless smoke test (no window needed)
 
 That's it — battles, catching, XP, and the bestiary pick it up
 automatically.
+
+.
+## In the wild
+
+
+
+- 🎬 [Code walkthrough video](https://www.linkedin.com/feed/update/urn:li:activity:7513553621528252417/) — LinkedIn post covering the 8 pixel creatures, the type chart, turn-based battles, and catching.
