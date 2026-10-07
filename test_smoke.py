@@ -292,10 +292,21 @@ def main():
         main_module.draw_bestiary(screen, game8, font_big, font, font_small)
         game8.state = "VICTORY"
         main_module.draw_victory(screen, font_big, font)
+        game8.state = "BATTLE"
         game8.start_battle("thornbloom")
-        for s in ("msg", "menu", "fight", "switch", "over"):
+        for s in ("msg", "menu", "fight", "switch", "over", "orb"):
             game8.battle.state = s
             game8.battle.draw(screen, sprites, font_big, font)
+        # Phase 2 screens (drawn over the overworld).
+        game8.state = "CRAFT"
+        main_module.draw_craft(screen, game8, font_big, font, font_small)
+        game8.state = "BUILD"
+        main_module.draw_build(screen, game8, font_big, font, font_small)
+        game8.state = "INVENTORY"
+        main_module.draw_inventory(screen, game8, font_big, font, font_small)
+        game8.state = "BUILD_PLACE"
+        game8.build_choice = 0
+        main_module.draw_overworld(screen, game8, font_big, font, font_small)
         drew_ok = True
     except Exception as e:  # noqa: BLE001
         drew_ok = False
@@ -308,6 +319,137 @@ def main():
     for key in BESTIARY_ORDER:
         game9.bestiary.add(key)
     check("8/8 species -> victory", game9.check_victory())
+
+    # 14. Phase 2: farming / crafting / building -------------------------
+    from world import BRIDGE, FENCE, GRASS, SOIL, STUMP, TREE  # noqa: E402
+    g = Game()
+    g.select_starter("cindercub")
+    check("new game: bag starts with 5 seeds, 0 wood",
+          g.inv["seeds"] == 5 and g.inv["wood"] == 0)
+
+    # Till -> plant -> grow -> harvest. Player at (5,7), facing down -> (6,8).
+    g.player.teleport(5, 7)
+    g.player.facing = "down"
+    g.interact()
+    check("F on grass tills soil", g.world.tile_at(6, 8) == SOIL)
+    g.interact()
+    check("F on soil plants a seed (5 -> 4)",
+          (6, 8) in g.world.crops and g.inv["seeds"] == 4,
+          f"seeds={g.inv['seeds']}")
+    g.interact()
+    check("F on growing crop: still growing, no seed consumed",
+          g.world.crops[(6, 8)]["stage"] == 0 and g.inv["seeds"] == 4)
+    g.world.update_crops(46)
+    check("crop grows: stage 0 -> 1 after 46s",
+          g.world.crops[(6, 8)]["stage"] == 1)
+    g.world.update_crops(46)
+    check("crop grows: stage 1 -> 2 (mature)",
+          g.world.crops[(6, 8)]["stage"] == 2)
+    g.interact()
+    check("F on mature crop: +2 crops +1 seed, soil stays",
+          g.inv["crops"] == 2 and g.inv["seeds"] == 5
+          and (6, 8) not in g.world.crops
+          and g.world.tile_at(6, 8) == SOIL,
+          f"crops={g.inv['crops']} seeds={g.inv['seeds']}")
+
+    # Chop a tree -> stump; rest regrows it. Tree at (2,7): stand (3,8).
+    g.player.teleport(3, 8)
+    g.player.facing = "up"
+    g.interact()
+    check("F on tree: +2 wood, becomes stump",
+          g.inv["wood"] == 2 and g.world.tile_at(2, 7) == STUMP,
+          f"wood={g.inv['wood']}")
+    check("stump is solid", g.world.is_solid(2, 7))
+    g.rest_at_tent()
+    check("rest at tent regrows stumps", g.world.tile_at(2, 7) == TREE)
+    if os.path.exists("save.dat"):
+        os.remove("save.dat")
+
+    # Crafting.
+    g.inv["wood"] = 3
+    orbs0 = g.orbs
+    g.craft(0)
+    check("craft orb: 3 wood -> +1 orb",
+          g.orbs == orbs0 + 1 and g.inv["wood"] == 0)
+    g.craft(0)
+    check("unaffordable craft: orbs unchanged", g.orbs == orbs0 + 1)
+    g.inv["wood"] = 1
+    g.craft(1)
+    check("craft super orb: 2 crops + 1 wood -> +1 super orb",
+          g.inv["super_orbs"] == 1 and g.inv["crops"] == 0
+          and g.inv["wood"] == 0)
+    g.inv["wood"] = 4
+    g.craft(2)
+    check("craft fence kit: 4 wood -> +1 kit",
+          g.inv["fence_kits"] == 1 and g.inv["wood"] == 0)
+
+    # Building: fence on soil (6,8), then remove it for a wood refund.
+    g.player.teleport(5, 7)
+    g.player.facing = "down"
+    g.build_choice = 0
+    g.place_build()
+    check("build fence on soil: kit consumed, fence solid",
+          g.inv["fence_kits"] == 0 and g.world.tile_at(6, 8) == FENCE
+          and g.world.is_solid(6, 8))
+    g.build_choice = None
+    g.interact()  # F on your own fence -> remove, +1 wood
+    check("F on fence removes it: +1 wood, back to grass",
+          g.world.tile_at(6, 8) == GRASS and g.inv["wood"] == 1)
+    # Bridge on water: stand (5,1) facing up -> (4,0) is border water.
+    g.player.teleport(5, 1)
+    g.player.facing = "up"
+    g.build_choice = 1
+    g.inv["wood"] = 4
+    g.place_build()
+    check("build bridge on water: walkable",
+          g.world.tile_at(4, 0) == BRIDGE and not g.world.is_solid(4, 0))
+    g.build_choice = None
+    # Invalid spot: fence on water is rejected, kit kept.
+    g.inv["fence_kits"] = 1
+    g.build_choice = 0
+    g.place_build()
+    check("fence on water rejected: bridge stays, kit kept",
+          g.world.tile_at(4, 0) == BRIDGE and g.inv["fence_kits"] == 1)
+    g.build_choice = None
+
+    # Super orb in battle: consumed, catch works (mocked RNG).
+    g2 = Game()
+    g2.select_starter("sproutle")
+    g2.orbs = 0
+    g2.inv["super_orbs"] = 1
+    g2.start_battle("novawisp")
+    b2 = g2.battle
+    b2.handle_key(pygame.K_RETURN)  # intro
+    b2.enemy.hp = 1
+    b2.state = "orb"
+    b2.orb_cursor = 1  # super orb
+    with mock.patch("battle.random.random", return_value=0.0):
+        b2.handle_key(pygame.K_RETURN)
+        guard = 0
+        while b2.state == "msg" and guard < 20:
+            b2.handle_key(pygame.K_RETURN)
+            guard += 1
+    check("super orb: consumed and caught novawisp",
+          g2.inv["super_orbs"] == 0 and b2.state == "over"
+          and "novawisp" in g2.bestiary)
+
+    # Save/load keeps farm state: till + plant, save, reload.
+    g3 = Game()
+    g3.select_starter("bloopfin")
+    g3.player.teleport(5, 7)
+    g3.player.facing = "down"
+    g3.interact()  # till (6,8)
+    g3.interact()  # plant (seeds 5 -> 4)
+    g3.inv["wood"] = 7
+    path3 = "/tmp/starbeasts_test_save2.dat"
+    g3.save(path3)
+    g4 = Game()
+    ok3 = g4.load(path3)
+    same3 = (ok3 and g4.world.tile_at(6, 8) == SOIL
+             and (6, 8) in g4.world.crops
+             and g4.inv["wood"] == 7 and g4.inv["seeds"] == 4)
+    check("save/load preserves farm state (soil, crop, bag)", same3)
+    os.remove(path3)
 
     # -- summary --
     fails = [r for r in results if r[0] == FAIL]

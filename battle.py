@@ -27,6 +27,7 @@ class Battle:
         self.menu_cursor = 0
         self.move_cursor = 0
         self.switch_cursor = 0
+        self.orb_cursor = 0
         self.forced_switch = False
         self.result = None
         # Message queue: list of (text, then_function_or_None).
@@ -116,6 +117,16 @@ class Battle:
                 self._do_switch(self.switch_cursor)
             elif key == pygame.K_ESCAPE and not self.forced_switch:
                 self._to_menu()
+        elif self.state == "orb":
+            # Phase 2: choose a normal orb or a super orb (1.3x catch!).
+            if key == pygame.K_UP:
+                self.orb_cursor = (self.orb_cursor - 1) % 2
+            elif key == pygame.K_DOWN:
+                self.orb_cursor = (self.orb_cursor + 1) % 2
+            elif key in (pygame.K_RETURN, pygame.K_SPACE):
+                self._throw_orb(super=(self.orb_cursor == 1))
+            elif key == pygame.K_ESCAPE:
+                self._to_menu()
         elif self.state == "over":
             if key in (pygame.K_RETURN, pygame.K_SPACE):
                 self.game.after_battle()
@@ -131,7 +142,16 @@ class Battle:
             self.state = "switch"
             self.switch_cursor = self.active_idx
         elif action == "ORB":
-            self._throw_orb()
+            # Phase 2: if you carry BOTH orb types, pick which to throw.
+            if self.game.orbs > 0 and self.game.inv["super_orbs"] > 0:
+                self.state = "orb"
+                self.orb_cursor = 0
+            elif self.game.orbs > 0:
+                self._throw_orb(super=False)
+            elif self.game.inv["super_orbs"] > 0:
+                self._throw_orb(super=True)
+            else:
+                self.say("No orbs left!", then=self._to_menu)
         elif action == "RUN":
             self._try_run()
 
@@ -241,17 +261,29 @@ class Battle:
     def _reshow_switch(self):
         self.state = "switch"
 
-    def _throw_orb(self):
-        if self.game.orbs <= 0:
-            self.say("No orbs left!", then=self._to_menu)
-            return
-        self.game.orbs -= 1
+    def _throw_orb(self, super=False):
+        """Throw an orb. Super orbs catch 1.3x better (craft them with C)."""
+        if super:
+            if self.game.inv["super_orbs"] <= 0:
+                self.say("No super orbs left!", then=self._to_menu)
+                return
+            self.game.inv["super_orbs"] -= 1
+            bonus = 1.3
+            label = "a SUPER orb"
+        else:
+            if self.game.orbs <= 0:
+                self.say("No orbs left!", then=self._to_menu)
+                return
+            self.game.orbs -= 1
+            bonus = 1.0
+            label = "an orb"
         enemy = self.enemy
-        if random.random() < catch_chance(enemy):
-            self.say(f"You threw an orb... Gotcha! {enemy.name} was caught!",
+        chance = min(0.95, catch_chance(enemy) * bonus)
+        if random.random() < chance:
+            self.say(f"You threw {label}... Gotcha! {enemy.name} was caught!",
                      then=self._caught)
         else:
-            self.say(f"You threw an orb... {enemy.name} broke free!",
+            self.say(f"You threw {label}... {enemy.name} broke free!",
                      then=lambda: self._enemy_attack(then=self._after_enemy_hit))
 
     def _caught(self):
@@ -327,13 +359,26 @@ class Battle:
             hint = font.render("ENTER: continue", True, (150, 150, 170))
             surf.blit(hint, (W - 200, H - 40))
         elif self.state == "menu":
-            labels = [f"FIGHT", f"SWITCH",
-                      f"ORB x{self.game.orbs}", f"RUN"]
+            orb_label = f"ORB x{self.game.orbs}"
+            if self.game.inv["super_orbs"]:
+                orb_label += f" (+{self.game.inv['super_orbs']} super)"
+            labels = ["FIGHT", "SWITCH", orb_label, "RUN"]
             for i, label in enumerate(labels):
                 cx, cy = 190 + (i % 2) * 380, 450 + (i // 2) * 60
                 color = (255, 220, 90) if i == self.menu_cursor else (200, 200, 200)
                 prefix = "> " if i == self.menu_cursor else "  "
                 surf.blit(font_big.render(prefix + label, True, color), (cx, cy))
+        elif self.state == "orb":
+            # Phase 2: pick which orb to throw.
+            options = [f"Orb x{self.game.orbs}",
+                       f"Super Orb x{self.game.inv['super_orbs']}  (1.3x catch!)"]
+            for i, label in enumerate(options):
+                color = (255, 220, 90) if i == self.orb_cursor else (200, 200, 200)
+                prefix = "> " if i == self.orb_cursor else "  "
+                surf.blit(font_big.render(prefix + label, True, color),
+                          (60, 440 + i * 55))
+            surf.blit(font.render("ESC: back", True, (150, 150, 170)),
+                      (W - 140, H - 40))
         elif self.state == "fight":
             for i, move in enumerate(self.active().moves):
                 color = (255, 220, 90) if i == self.move_cursor else (200, 200, 200)
