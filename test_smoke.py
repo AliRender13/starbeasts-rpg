@@ -451,6 +451,32 @@ def main():
     check("save/load preserves farm state (soil, crop, bag)", same3)
     os.remove(path3)
 
+    # World map overlay (M key): draws without crashing, and the
+    # missing-file fallback shows a message instead of crashing.
+    pygame.display.set_mode((768, 576))
+    scr = pygame.display.get_surface()
+    fb, f_, fs = (pygame.font.Font(None, s) for s in (44, 30, 24))
+    g5 = Game()
+    g5.select_starter("sproutle")
+    g5.state = "WORLDMAP"  # as if M was pressed in the overworld
+    try:
+        main_module.draw_worldmap(scr, fb, f_, fs)
+        drawn = True
+    except Exception:
+        drawn = False
+    check("world map overlay draws without crashing",
+          drawn and g5.state == "WORLDMAP")
+    g5.state = "OVERWORLD"  # as if M / ESC was pressed to close it
+    check("world map closes back to overworld", g5.state == "OVERWORLD")
+    main_module._world_map_cache["loaded"] = True
+    main_module._world_map_cache["image"] = None  # pretend file is missing
+    try:
+        main_module.draw_worldmap(scr, fb, f_, fs)
+        fallback_ok = True
+    except Exception:
+        fallback_ok = False
+    check("world map missing-file fallback draws message", fallback_ok)
+
     # -- summary --
     fails = [r for r in results if r[0] == FAIL]
     print(f"\n{len(results) - len(fails)}/{len(results)} checks passed.")

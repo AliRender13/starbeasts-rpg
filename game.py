@@ -47,7 +47,8 @@ NEW_INVENTORY = {"wood": 0, "seeds": 5, "crops": 0,
 class Game:
     """Owns everything: the world, the party, and which screen is showing.
 
-    States: TITLE, STARTER, OVERWORLD, BATTLE, BESTIARY, VICTORY.
+    States: TITLE, STARTER, OVERWORLD, BATTLE, BESTIARY, VICTORY,
+    CRAFT, BUILD, BUILD_PLACE, INVENTORY, WORLDMAP.
     """
 
     def __init__(self):

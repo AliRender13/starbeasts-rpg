@@ -1,5 +1,7 @@
 """STARBEASTS - a 2D pixel-creature RPG. Run this file to play."""
 
+import os
+
 import pygame
 
 import sprites
@@ -11,6 +13,23 @@ WIDTH, HEIGHT = 768, 576
 FPS = 60
 
 STARTER_KEYS = ["cindercub", "bloopfin", "sproutle"]
+
+# The hand-drawn world map shown by the M key. Loaded once, on demand;
+# if the file is missing the overlay shows a message instead of crashing.
+WORLD_MAP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "world-map.png")
+_world_map_cache = {"loaded": False, "image": None}
+
+
+def get_world_map():
+    """Load world-map.png once; return None when the file is missing."""
+    if not _world_map_cache["loaded"]:
+        _world_map_cache["loaded"] = True
+        try:
+            _world_map_cache["image"] = pygame.image.load(WORLD_MAP_FILE)
+        except (pygame.error, FileNotFoundError, OSError):
+            _world_map_cache["image"] = None
+    return _world_map_cache["image"]
 
 
 def make_silhouette(surf):
@@ -90,6 +109,8 @@ def main():
                         game.build_cursor = 0
                     elif key == pygame.K_i:
                         game.state = "INVENTORY"
+                    elif key == pygame.K_m:
+                        game.state = "WORLDMAP"  # fullscreen world map
                 elif game.state == "CRAFT":
                     if key == pygame.K_UP:
                         game.craft_cursor = (game.craft_cursor - 1) % len(RECIPES)
@@ -118,6 +139,10 @@ def main():
                         game.build_choice = None
                 elif game.state == "INVENTORY":
                     if key in (pygame.K_i, pygame.K_ESCAPE, pygame.K_RETURN):
+                        game.state = "OVERWORLD"
+                elif game.state == "WORLDMAP":
+                    # M, ESC, or ENTER closes the map back to the overworld.
+                    if key in (pygame.K_m, pygame.K_ESCAPE, pygame.K_RETURN):
                         game.state = "OVERWORLD"
                 elif game.state == "BATTLE":
                     game.battle.handle_key(key)
@@ -156,6 +181,8 @@ def main():
             draw_build(screen, game, font_big, font, font_small)
         elif game.state == "INVENTORY":
             draw_inventory(screen, game, font_big, font, font_small)
+        elif game.state == "WORLDMAP":
+            draw_worldmap(screen, font_big, font, font_small)
         elif game.state == "BATTLE":
             game.battle.draw(screen, sprites, font_big, font)
         elif game.state == "BESTIARY":
@@ -242,7 +269,8 @@ def draw_overworld(screen, game, font_big, font, font_small):
 
     # Controls hint.
     hint = font_small.render(
-        "Arrows/WASD: move   F: use   C: craft   V: build   I: bag   B: bestiary",
+        "Arrows/WASD: move   F: use   C: craft   V: build   I: bag   "
+        "B: bestiary   M: map",
         True, (230, 230, 230))
     bg = pygame.Surface((WIDTH, 30))
     bg.fill((20, 20, 30))
@@ -336,6 +364,43 @@ def draw_inventory(screen, game, font_big, font, font_small):
         screen.blit(sub, (420, y + 6))
     hint = font_small.render("I / ESC: close", True, (150, 150, 170))
     screen.blit(hint, (WIDTH // 2 - hint.get_width() // 2, 470))
+
+
+def draw_worldmap(screen, font_big, font, font_small):
+    """Fullscreen world-map overlay, opened with M in the overworld."""
+    screen.fill((16, 13, 22))  # dark parchment night
+    title = font_big.render("WORLD OF STARBEASTS", True, (255, 220, 90))
+    screen.blit(title, (WIDTH // 2 - title.get_width() // 2, 8))
+
+    img = get_world_map()
+    top, bottom = 56, HEIGHT - 52  # room for the title bar + legend bar
+    if img is None:
+        msg = font.render("World map not found (world-map.png is missing).",
+                          True, (220, 120, 120))
+        screen.blit(msg, (WIDTH // 2 - msg.get_width() // 2, HEIGHT // 2))
+    else:
+        # Scale the map to fit, keeping its aspect ratio, then center it.
+        avail_w, avail_h = WIDTH - 40, bottom - top
+        scale = min(avail_w / img.get_width(), avail_h / img.get_height())
+        w, h = max(1, int(img.get_width() * scale)), \
+            max(1, int(img.get_height() * scale))
+        small = pygame.transform.smoothscale(img, (w, h))
+        x, y = (WIDTH - w) // 2, top + (avail_h - h) // 2
+        pygame.draw.rect(screen, (255, 220, 90),  # gold frame
+                         (x - 4, y - 4, w + 8, h + 8), 3)
+        screen.blit(small, (x, y))
+
+    # Legend bar: what each mark on the map means.
+    bar = pygame.Surface((WIDTH, 44))
+    bar.set_alpha(180)
+    bar.fill((10, 10, 16))
+    screen.blit(bar, (0, HEIGHT - 52))
+    legend = font_small.render(
+        "Castle=Kingdom   Anchor=Port   Pick=Mine   Arch=Dungeon   "
+        "House=Village   Star=Mark", True, (230, 220, 190))
+    screen.blit(legend, (WIDTH // 2 - legend.get_width() // 2, HEIGHT - 46))
+    hint = font_small.render("M / ESC: close", True, (150, 150, 170))
+    screen.blit(hint, (WIDTH // 2 - hint.get_width() // 2, HEIGHT - 24))
 
 
 def draw_bestiary(screen, game, font_big, font, font_small):
